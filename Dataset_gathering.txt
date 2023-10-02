@@ -1,0 +1,14 @@
+1. Download .mkv videos from :
+https://uhdmovies.store/download-friends-season-1-10-1994-2004-english-audio-1080p-10bit-x264-remux-hevc-bluray-web-dl-esubs/
+
+2. Extract audio .mp3 : 
+ffmpeg -i friends.mp4 friends.mp3
+
+3. Get the subtitles in .srt from : 
+https://subscene.com/subtitles/friends--first-season/english/1781782
+
+4. Match the subtitles to the script (https://www.livesinabox.com/friends/scripts.shtml) so that the script has timestamps
+
+5. Cut the audio into bits at the defined timestamps
+
+6. Make final dataset : cvs with [season, episode, character, script, path to audio, (timestamp start, timestamp end ?)]
