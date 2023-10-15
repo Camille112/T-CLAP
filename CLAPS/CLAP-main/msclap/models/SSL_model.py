@@ -69,7 +69,7 @@ if __name__ == "__main__":
 
     extended_model = ExtendedModel(clap_instance)
 
-    #def forward(self, audio, text):
+    #def forward(self, audio, text): # check
 
     x = torch.rand(3, 4)
 
