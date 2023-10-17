@@ -2,7 +2,7 @@ import os
 import subprocess
 
 def convert_video_to_audio(input_video, output_audio):
-    command = f"ffmpeg -i {input_video} {output_audio}"
+    command = f"ffmpeg -i {input_video} -ab 640k {output_audio}"
     subprocess.run(command, shell=True)
 
 def convert_videos_in_folder(input_folder, output_folder):
