@@ -5,9 +5,9 @@
 [![Build Status](https://travis-ci.com/yourusername/projectname.svg?branch=master)](https://travis-ci.com/yourusername/projectname)
 [![Twitter: yourtwitterhandle](https://img.shields.io/twitter/follow/yourtwitterhandle?style=social)](https://twitter.com/yourtwitterhandle)
 
-> Short project description here. This should describe what your project does and what it's used for.
+> 
 
-![Project Image or GIF](http://url/to/image/or/gif)
+![Project Image or GIF]([http://url/to/image/or/gif](https://github.com/comp-physics/deepOscillations/blob/master/doc/NN_integral.gif))
 
 ## Features
 
