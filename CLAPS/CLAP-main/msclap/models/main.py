@@ -5,8 +5,8 @@ import torch
 import datetime
 import numpy as np
 import utils
-import data_ssl as ds
-import matplotlib.pyplot as plt
+#import data_ssl as ds
+#import matplotlib.pyplot as plt
 from SSL_model import ExtendedModel
 
 import torch
@@ -38,9 +38,14 @@ import torch
 from torch import nn, Tensor
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.utils.data import dataset
-import positional_encoder as pe
+#import positional_encoder as pe
 import time
 
+from cont_loss import (
+    LossAddition,
+    T2VContraLoss,
+    V2TContraLoss,
+)
 
 def load_config(file_path):
     with open(file_path, 'r') as stream:
@@ -59,6 +64,36 @@ class Trainer():
     def __init__(self, CONFIG) -> None:
         self.CONFIG = CONFIG
         self.device = torch_device_select(self.CONFIG['gpu'])
+        self.contrastive = LossAddition(
+            [
+                T2VContraLoss(sample_weights, alpha_matrix),
+                V2TContraLoss(sample_weights, alpha_matrix),
+            ],
+        )
+    
+    def compute_batch_losses(self, outputs):
+        # normalize representations
+        if self.no_reverse:
+            video = outputs["z_video_forward"]
+        else:    
+            video_forward = outputs["z_video_forward"]
+            video_reverse = outputs["z_video_reverse"]
+            video = torch.cat([video_forward, video_reverse], dim=0)
+        
+        if self.no_reverse:
+            text = outputs["z_text_forward"]
+        else:
+            text_forward = outputs["z_text_forward"]
+            text_reverse = outputs["z_text_reverse"]
+            text = torch.cat([text_forward, text_reverse], dim=0)
+
+        # contrastive loss
+        loss_contrastive = self.contrastive(pooled_video=video, pooled_text=text)
+
+        # total loss
+        total_loss = self.contrastive_lambda * loss_contrastive
+
+        return {"total": total_loss, "contrastive": loss_contrastive}
             
     def train(model: nn.Module) -> None:
         
@@ -133,6 +168,14 @@ if __name__ == "__main__":
 
     batch_size = 2
 
+    # Load your configuration file
+    config_path = '../configs/config_2022.yml'  # Replace with your actual file path
+    config = load_config(config_path)
+
+    # Load and initialize CLAP
+    weights_path = '/Users/anshumansinha/Desktop/Fall23/CSE8803/Project/CLAP_weights_2022.pth'
+    #c_model = CLAP(weights_path, version = '2022', use_cuda=False)
+
     clap_model = CLAPS(
                 audioenc_name=config['audioenc_name'],
                 sample_rate=config['sampling_rate'],  # 'sample_rate' seems to be the correct parameter name
@@ -145,17 +188,68 @@ if __name__ == "__main__":
                 out_emb=config['out_emb'],
                 text_model=config['text_model'],
                 transformer_embed_dim=config['transformer_embed_dim'],
-                d_proj=config['d_proj']
-            )
+                d_proj=config['d_proj'])
 
     # 'model' key from check-pont dic
     ckpt = torch.load(weights_path, map_location=torch.device('cpu'))['model']
     clap_model.load_state_dict(ckpt,strict=False)
-    model = ExtendedModel(clap_model)
+    
+    # model = ExtendedModel(clap_model)
+    model = clap_model
+
+    model_aud = model.audio_encoder
+    model_tex = model.caption_encoder
+
+    for name, param in model_tex.named_parameters():
+        # Check if 'base.pooler' or 'projection' is in the parameter name
+        if "base.pooler" not in name and "projection" not in name and "base.encoder.layer.11" not in name:
+            param.requires_grad = False  # Freeze this parameter
+        else:
+            # Otherwise, don't freeze it. It will be updated during training.
+            param.requires_grad = True
+
+    trainable_params1 = sum(p.numel() for p in model_tex.parameters() if p.requires_grad)
+    print(f"Number of trainable parameters: {trainable_params1}")
+
+    trainable_params2 = sum(p.numel() for p in model_tex.parameters())
+    print(f"Total number of trainable parameters: {trainable_params2}")
+
+    print(f'Percentage of trainable parameters Text: {(trainable_params1/trainable_params2)*100}%')
+    
+    print('*'*20)
+
+    for name, param in model_aud.named_parameters():
+        # Check if 'base.pooler' or 'projection' is in the parameter name
+        if "base.fc1" not in name and "base.fc_audioset" not in name and "projection" not in name:
+            param.requires_grad = False  # Freeze this parameter
+        else:
+            # Otherwise, don't freeze it. It will be updated during training.
+            param.requires_grad = True
+
+    # After updating requires_grad, check which parameters are trainable
+    
+    for name, param in model_tex.named_parameters():
+        print(f"{name} is {'trainable' if param.requires_grad else 'frozen'}")
+    for name, param in model_aud.named_parameters():
+        print(f"{name} is {'trainable' if param.requires_grad else 'frozen'}")
+
+
+    trainable_params1 = sum(p.numel() for p in model_aud.parameters() if p.requires_grad)
+    print(f"Number of trainable parameters: {trainable_params1}")
+
+    trainable_params2 = sum(p.numel() for p in model_aud.parameters())
+    print(f"Total number of trainable parameters: {trainable_params2}")
+
+    print(f'Percentage of trainable parameters Audio: {(trainable_params1/trainable_params2)*100}%')
 
     loss_function = torch.nn.MSELoss()
-    lr = 5.0  # learning rate
+
+    lr = 5.0  # learning rate , too high -> check
+
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    # Now, only the parameters of the last layer will be updated.
+    optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.001)
+
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
 
     best_val_loss = float('inf')
