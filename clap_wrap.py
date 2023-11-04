@@ -49,7 +49,14 @@ class CLAPWrap():
         self.use_cuda = use_cuda
         
         self.clap = model
-        
+
+        '''
+        trainable_params1 = sum(p.numel() for p in self.clap.parameters() if p.requires_grad)
+        print(f"Number of trainable parameters: {trainable_params1}")
+        for name, param in self.clap.named_parameters():
+            print(f"{name} is {'trainable' if param.requires_grad else 'frozen'}")
+        '''
+
         self.args = self.read_config_as_args(self.config_as_str, is_config_str=True)
         args = self.args
 
@@ -206,16 +213,16 @@ class CLAPWrap():
 
     def _get_text_embeddings(self, preprocessed_text):
         r"""Load preprocessed text and return text embeddings"""
-        with torch.no_grad():
-            return self.clap.caption_encoder(preprocessed_text)
+        #with torch.no_grad():
+        return self.clap.caption_encoder(preprocessed_text)
 
     def _get_audio_embeddings(self, preprocessed_audio):
         r"""Load preprocessed audio and return a audio embeddings"""
-        with torch.no_grad():
-            preprocessed_audio = preprocessed_audio.reshape(
-                preprocessed_audio.shape[0], preprocessed_audio.shape[2])
-            #Append [0] the audio emebdding, [1] has output class probabilities
-            return self.clap.audio_encoder(preprocessed_audio)[0]
+        #with torch.no_grad():
+        preprocessed_audio = preprocessed_audio.reshape(
+            preprocessed_audio.shape[0], preprocessed_audio.shape[2])
+        #Append [0] the audio emebdding, [1] has output class probabilities
+        return self.clap.audio_encoder(preprocessed_audio)[0]
 
     def _generic_batch_inference(self, func, *args):
         r"""Process audio and/or text per batch"""
@@ -266,18 +273,18 @@ class CLAPWrap():
         captions = []
         audio_tensors = self.preprocess_audio(audio_files, resample)
 
-        with torch.no_grad():
-            prefix = self.clapcap.clap(audio_tensors.squeeze(1))[0]
-            if self.args.normalize_prefix:
-                prefix = prefix / prefix.norm(2, -1).reshape(-1,1)
-            prefix_embed = self.clapcap.clap_project(prefix).view(-1, self.args.prefix_length, self.clapcap.gpt.transformer.wte.weight.shape[1])
+        #with torch.no_grad():
+        prefix = self.clapcap.clap(audio_tensors.squeeze(1))[0]
+        if self.args.normalize_prefix:
+            prefix = prefix / prefix.norm(2, -1).reshape(-1,1)
+        prefix_embed = self.clapcap.clap_project(prefix).view(-1, self.args.prefix_length, self.clapcap.gpt.transformer.wte.weight.shape[1])
 
-            for i in range(len(audio_tensors)):
-                gen_caption = self._generate_beam(embed=prefix_embed[i].unsqueeze(0),\
-                                                            beam_size=beam_size,\
-                                                            entry_length=entry_length,\
-                                                            temperature=temperature)[0]
-                captions.append(gen_caption.capitalize())
+        for i in range(len(audio_tensors)):
+            gen_caption = self._generate_beam(embed=prefix_embed[i].unsqueeze(0),\
+                                                        beam_size=beam_size,\
+                                                        entry_length=entry_length,\
+                                                        temperature=temperature)[0]
+            captions.append(gen_caption.capitalize())
         return captions
     
     def _generate_beam(self, beam_size: int = 5, prompt=None, embed=None,
@@ -290,49 +297,49 @@ class CLAPWrap():
         device = next(self.clapcap.parameters()).device
         seq_lengths = torch.ones(beam_size, device=device)
         is_stopped = torch.zeros(beam_size, device=device, dtype=torch.bool)
-        with torch.no_grad():
-            if embed is not None:
-                generated = embed
-            else:
+        #with torch.no_grad():
+        if embed is not None:
+            generated = embed
+        else:
+            if tokens is None:
+                tokens = torch.tensor(self.tokenizer.encode(prompt))
+                tokens = tokens.unsqueeze(0).to(device)
+                generated = self.clapcap.gpt.transformer.wte(tokens)
+        for i in range(entry_length):
+            outputs = self.clapcap.gpt(inputs_embeds=generated)
+            logits = outputs.logits
+            logits = logits[:, -1, :] / (temperature if temperature > 0 else 1.0)
+            logits = logits.softmax(-1).log()
+            if scores is None:
+                scores, next_tokens = logits.topk(beam_size, -1)
+                generated = generated.expand(beam_size, *generated.shape[1:])
+                next_tokens, scores = next_tokens.permute(1, 0), scores.squeeze(0)
                 if tokens is None:
-                    tokens = torch.tensor(self.tokenizer.encode(prompt))
-                    tokens = tokens.unsqueeze(0).to(device)
-                    generated = self.clapcap.gpt.transformer.wte(tokens)
-            for i in range(entry_length):
-                outputs = self.clapcap.gpt(inputs_embeds=generated)
-                logits = outputs.logits
-                logits = logits[:, -1, :] / (temperature if temperature > 0 else 1.0)
-                logits = logits.softmax(-1).log()
-                if scores is None:
-                    scores, next_tokens = logits.topk(beam_size, -1)
-                    generated = generated.expand(beam_size, *generated.shape[1:])
-                    next_tokens, scores = next_tokens.permute(1, 0), scores.squeeze(0)
-                    if tokens is None:
-                        tokens = next_tokens
-                    else:
-                        tokens = tokens.expand(beam_size, *tokens.shape[1:])
-                        tokens = torch.cat((tokens, next_tokens), dim=1)
+                    tokens = next_tokens
                 else:
-                    logits[is_stopped] = -float(np.inf)
-                    logits[is_stopped, 0] = 0
-                    scores_sum = scores[:, None] + logits
-                    seq_lengths[~is_stopped] += 1
-                    scores_sum_average = scores_sum / seq_lengths[:, None]
-                    scores_sum_average, next_tokens = scores_sum_average.view(-1).topk(beam_size, -1)
-                    next_tokens_source = next_tokens // scores_sum.shape[1]
-                    seq_lengths = seq_lengths[next_tokens_source]
-                    next_tokens = next_tokens % scores_sum.shape[1]
-                    next_tokens = next_tokens.unsqueeze(1)
-                    tokens = tokens[next_tokens_source]
+                    tokens = tokens.expand(beam_size, *tokens.shape[1:])
                     tokens = torch.cat((tokens, next_tokens), dim=1)
-                    generated = generated[next_tokens_source]
-                    scores = scores_sum_average * seq_lengths
-                    is_stopped = is_stopped[next_tokens_source]
-                next_token_embed = self.clapcap.gpt.transformer.wte(next_tokens.squeeze()).view(generated.shape[0], 1, -1)
-                generated = torch.cat((generated, next_token_embed), dim=1)
-                is_stopped = is_stopped + next_tokens.eq(stop_token_index).squeeze()
-                if is_stopped.all():
-                    break
+            else:
+                logits[is_stopped] = -float(np.inf)
+                logits[is_stopped, 0] = 0
+                scores_sum = scores[:, None] + logits
+                seq_lengths[~is_stopped] += 1
+                scores_sum_average = scores_sum / seq_lengths[:, None]
+                scores_sum_average, next_tokens = scores_sum_average.view(-1).topk(beam_size, -1)
+                next_tokens_source = next_tokens // scores_sum.shape[1]
+                seq_lengths = seq_lengths[next_tokens_source]
+                next_tokens = next_tokens % scores_sum.shape[1]
+                next_tokens = next_tokens.unsqueeze(1)
+                tokens = tokens[next_tokens_source]
+                tokens = torch.cat((tokens, next_tokens), dim=1)
+                generated = generated[next_tokens_source]
+                scores = scores_sum_average * seq_lengths
+                is_stopped = is_stopped[next_tokens_source]
+            next_token_embed = self.clapcap.gpt.transformer.wte(next_tokens.squeeze()).view(generated.shape[0], 1, -1)
+            generated = torch.cat((generated, next_token_embed), dim=1)
+            is_stopped = is_stopped + next_tokens.eq(stop_token_index).squeeze()
+            if is_stopped.all():
+                break
         scores = scores / seq_lengths
         output_list = tokens.cpu().numpy()
         output_texts = [self.tokenizer.decode(output[:int(length)]) for output, length in zip(output_list, seq_lengths)]
