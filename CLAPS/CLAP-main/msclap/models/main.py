@@ -5,8 +5,7 @@ import torch
 import datetime
 import numpy as np
 import utils
-#import data_ssl as ds
-#import matplotlib.pyplot as plt
+
 from SSL_model import ExtendedModel
 
 import torch
@@ -17,6 +16,7 @@ import torchvision.models as models
 from clap import CLAP as CLAPS
 
 from msclap import CLAP
+import warnings
 
 import yaml
 
@@ -40,11 +40,13 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.utils.data import dataset
 #import positional_encoder as pe
 import time
+import clap_ds as ds
+import clap_wrap
 
 from cont_loss import (
     LossAddition,
-    T2VContraLoss,
-    V2TContraLoss,
+    T2AContraLoss,
+    A2TContraLoss,
 )
 
 def load_config(file_path):
@@ -55,70 +57,111 @@ def load_config(file_path):
             print(exc)
             return None
 
+def torch_device_select(gpu):
+    # check GPU availability & return device type
+    if torch.cuda.is_available() and not gpu:
+        warnings.warn("GPU is available but not used.")
+        return 'cpu'
+    elif not torch.cuda.is_available() and gpu:
+        warnings.warn("GPU is not available but set to used. Using CPU.")
+        return 'cpu'
+    elif torch.cuda.is_available() and gpu:
+        return 'cuda'
+    else:
+        return 'cpu'
+
 # Hyperparams
 test_size = 0.1
 batch_size = 2
+
+CONFIG = {}
+CONFIG['gpu'] = True
+CONFIG['contrastive_lambda'] = 0.8
 
 class Trainer():
 
     def __init__(self, CONFIG) -> None:
         self.CONFIG = CONFIG
         self.device = torch_device_select(self.CONFIG['gpu'])
+        self.alpha_same = 1.0
+        self.alpha_cross = 1.0
+        self.beta = 1.0
+        
+        batch_size = 32
+        sample_weights = torch.ones(2 * batch_size, device=self.device)
+        sample_weights[batch_size // 2:] *= self.beta
+        
+        # define the losses
+        self.contrastive_lambda = self.CONFIG['contrastive_lambda']
+
+        alpha_matrix = self.alpha_cross * np.ones((batch_size, batch_size))
+        alpha_matrix[np.arange(batch_size), np.arange(batch_size)] = self.alpha_same
         self.contrastive = LossAddition(
             [
-                T2VContraLoss(sample_weights, alpha_matrix),
-                V2TContraLoss(sample_weights, alpha_matrix),
+                T2AContraLoss(sample_weights, alpha_matrix),
+                A2TContraLoss(sample_weights, alpha_matrix),
             ],
         )
     
-    def compute_batch_losses(self, outputs):
-        # normalize representations
-        if self.no_reverse:
-            video = outputs["z_video_forward"]
-        else:    
-            video_forward = outputs["z_video_forward"]
-            video_reverse = outputs["z_video_reverse"]
-            video = torch.cat([video_forward, video_reverse], dim=0)
-        
-        if self.no_reverse:
-            text = outputs["z_text_forward"]
-        else:
-            text_forward = outputs["z_text_forward"]
-            text_reverse = outputs["z_text_reverse"]
-            text = torch.cat([text_forward, text_reverse], dim=0)
+
+    def compute_batch_losses(self, outputs): # outputs = embedding coming from model.
+    
+        audio_forward = outputs["audio_embeddings_f"]
+        audio_reverse = outputs["audio_embeddings_r"]
+        audio = torch.cat([audio_forward, audio_reverse], dim=0)
+    
+        text_forward = outputs["text_embeddings_f"]
+        text_reverse = outputs["text_embeddings_r"]
+        text = torch.cat([text_forward, text_reverse], dim=0)
 
         # contrastive loss
-        loss_contrastive = self.contrastive(pooled_video=video, pooled_text=text)
+        loss_contrastive = self.contrastive(batch_audio=audio, batch_text=text)
 
         # total loss
         total_loss = self.contrastive_lambda * loss_contrastive
 
         return {"total": total_loss, "contrastive": loss_contrastive}
             
-    def train(model: nn.Module) -> None:
+    def train(self,model) -> None:
         
         model.train()  # turn on train mode
         total_loss = 0.
         log_interval = 200
         start_time = time.time()
         print('epochs : ', epoch)
+        training_loader = train_loader
 
-        dataset = load_dataset("MLCommons/peoples_speech", split='train', streaming=True)
-        dataset_head = dataset.take(2)
-        # dataset_head = (list(dataset_head))
-        training_loader = torch.utils.data.DataLoader(dataset_head, batch_size=2, shuffle=True)
+        for batch in training_loader:
 
-        for batch, i in training_loader:
+            audio_b, text_b = batch
+            #audio_b_f, audio_b_r, text_b_f, text_b_r = batch
 
-            data, targets = batch, i # torch.Size([2, 500, 12])
-            output = model(data) # torch.Size([2, 500, 10])
-            audio_path = i['audio']['path']  # This is your audio data
-            text = i['text']  # This is your sampling rate
+            text_embeddings= clap_wrap.CLAPWrap(model).get_text_embeddings(text_b)
+            audio_embeddings = clap_wrap.CLAPWrap(model).get_audio_embeddings(audio_b)# torch.Size([32, 1024])
 
-            audio_embeddings = clap_model.get_audio_embeddings([x], resample=True)
-            text_embeddings = clap_model.get_audio_embeddings(audio_embeddings, text_embeddings)
+            text_embeddings_f= clap_wrap.CLAPWrap(model).get_text_embeddings(text_b)
+            text_embeddings_r= clap_wrap.CLAPWrap(model).get_text_embeddings(text_b)
+            audio_embeddings_f = clap_wrap.CLAPWrap(model).get_audio_embeddings(audio_b)
+            audio_embeddings_r = clap_wrap.CLAPWrap(model).get_audio_embeddings(audio_b)
 
-            loss = loss_function(output, targets)
+            '''
+            text_embeddings_f= clap_wrap.CLAPWrap(model).get_text_embeddings(text_b_f)
+            text_embeddings_r= clap_wrap.CLAPWrap(model).get_text_embeddings(text_b_r)
+            audio_embeddings_f = clap_wrap.CLAPWrap(model).get_audio_embeddings(audio_b_f)
+            audio_embeddings_r = clap_wrap.CLAPWrap(model).get_audio_embeddings(audio_b_r)
+            '''
+
+            input_dic = {
+                'text_embeddings_f': text_embeddings_f,  # Placeholder for forward text embeddings
+                'text_embeddings_r': text_embeddings_r,  # Placeholder for reverse text embeddings
+                'audio_embeddings_f': audio_embeddings_f,  # Placeholder for forward audio embeddings
+                'audio_embeddings_r': audio_embeddings_f,  # Placeholder for reverse audio embeddings
+            }
+
+            loss = self.compute_batch_losses(input_dic) # input_list : []
+
+            print(loss)
+            exit()
 
             optimizer.zero_grad()
             loss.backward()
@@ -129,7 +172,7 @@ class Trainer():
         
         return total_loss
 
-    def evaluate(model: nn.Module, eval_data: Tensor) -> float:
+    def evaluate(model, eval_data: Tensor) -> float:
         
         model.eval()  # turn on evaluation mode
         total_loss = 0.
@@ -142,7 +185,7 @@ class Trainer():
                 total_loss += loss_function(output, targets).item()
         return total_loss/batch_l
 
-    def evaluate_test(model: nn.Module) -> float:
+    def evaluate_test(model) -> float:
         
         model.eval()  # turn on evaluation mode
         total_loss = 0.
@@ -174,7 +217,7 @@ if __name__ == "__main__":
 
     # Load and initialize CLAP
     weights_path = '/Users/anshumansinha/Desktop/Fall23/CSE8803/Project/CLAP_weights_2022.pth'
-    #c_model = CLAP(weights_path, version = '2022', use_cuda=False)
+    c_model = CLAP(weights_path, version = '2022', use_cuda=False)
 
     clap_model = CLAPS(
                 audioenc_name=config['audioenc_name'],
@@ -195,6 +238,7 @@ if __name__ == "__main__":
     clap_model.load_state_dict(ckpt,strict=False)
     
     # model = ExtendedModel(clap_model)
+    model = c_model.load_clap()[0]
     model = clap_model
 
     model_aud = model.audio_encoder
@@ -255,6 +299,17 @@ if __name__ == "__main__":
     best_val_loss = float('inf')
     epochs = 1
 
+    audio_dir = '/Users/anshumansinha/Desktop/Fall23/CSE8803/Project/CLAP-main/examples/root_path/ESC-50-master/data_combo/combo_audio/'
+    csv_path = '/Users/anshumansinha/Desktop/Fall23/CSE8803/Project/CLAP-main/examples/root_path/ESC-50-master/data_combo/combined.csv'
+
+    # Split the dataset into training and validation
+
+    read_cs = pd.read_csv(csv_path)
+    train_df, val_df = ds.split_dataset(read_cs)
+
+    # Create DataLoaders for training and validation sets
+    train_loader, val_loader = ds.create_data_loaders(train_df, val_df, audio_dir)
+
     with TemporaryDirectory() as tempdir:
         
         best_model_params_path = os.path.join(tempdir, "best_model_params.pt")
@@ -266,6 +321,7 @@ if __name__ == "__main__":
             print('trainer is running wild')
 
             tr_loss = trainer.train(model)
+
             val_loss = trainer.evaluate(model, val_data)
 
             elapsed = time.time() - epoch_start_time
@@ -286,17 +342,3 @@ if __name__ == "__main__":
         print('=' * 89)
         print(f'| End of training | test loss {test_loss:5.2f}')
         print('=' * 89)
-
-
-'''
-
-if __name__ == "__main__":
-    # Load your configuration file
-    config_path = '../configs/config_2022.yml'  # Replace with your actual file path
-    config = load_config(config_path)
-
-    # Load and initialize CLAP
-    weights_path = '/Users/anshumansinha/Desktop/Fall23/CSE8803/Project/CLAP_weights_2022.pth'
-    c_model = CLAP(weights_path, version = '2022', use_cuda=False)
-
-'''
