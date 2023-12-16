@@ -1,11 +1,14 @@
-# FriendlyTextToSpeech
+# Multi–modal LLM: Post Pre-Training ALMs with SSL
 
 ![Version](https://img.shields.io/badge/version-1.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
 [![Build Status](https://travis-ci.com/yourusername/projectname.svg?branch=master)](https://travis-ci.com/yourusername/projectname)
 [![Twitter: yourtwitterhandle](https://img.shields.io/twitter/follow/yourtwitterhandle?style=social)](https://twitter.com/yourtwitterhandle)
 
-> Multi–modal LLM: Post Pre-Training ALMs with SSL
+> The field of research focusing on multi-modal contrastive learning strategies within the audio-text
+realm has rapidly gained intense interest. Contrastively trained Audio-Language Models (ALMs),
+such as CLAP, which establish a unified representation across audio and language modalities, have
+enhanced the efficacy in various subsequent tasks.
 
 ![Project Image or GIF](https://github.com/Camille112/T-CLAP/blob/ac4a5a68fa2e3dc8aebbcfdecdf84501a2fe9ec7/Screenshot%202023-12-16%20at%2011.09.50%20AM.png)
 
