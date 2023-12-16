@@ -7,7 +7,7 @@
 
 > Multi–modal LLM: Post Pre-Training ALMs with SSL
 
-![Project Image or GIF]([(https://github.com/Camille112/T-CLAP/blob/ac4a5a68fa2e3dc8aebbcfdecdf84501a2fe9ec7/Screenshot%202023-12-16%20at%2011.09.50%20AM.png)])
+![Project Image or GIF](https://github.com/Camille112/T-CLAP/blob/ac4a5a68fa2e3dc8aebbcfdecdf84501a2fe9ec7/Screenshot%202023-12-16%20at%2011.09.50%20AM.png)
 
 ## Features
 
