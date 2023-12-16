@@ -5,7 +5,7 @@
 [![Build Status](https://travis-ci.com/yourusername/projectname.svg?branch=master)](https://travis-ci.com/yourusername/projectname)
 [![Twitter: yourtwitterhandle](https://img.shields.io/twitter/follow/yourtwitterhandle?style=social)](https://twitter.com/yourtwitterhandle)
 
-> 
+> Multi–modal LLM: Post Pre-Training ALMs with SSL
 
 ![Project Image or GIF]([http://url/to/image/or/gif](https://github.com/comp-physics/deepOscillations/blob/master/doc/NN_integral.gif))
 
