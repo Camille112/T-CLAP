@@ -14,19 +14,11 @@ enhanced the efficacy in various subsequent tasks.
 
 ## Main Contributions
 
--We show the current ALMs fails to capture the correct temporal relation between audio and texts.
--We propose a general purpose post-pretraining scheme TeminAL: Temporal Instillation in Audio-
+- We show the current ALMs fails to capture the correct temporal relation between audio and texts.
+- We propose a general purpose post-pretraining scheme TeminAL: Temporal Instillation in Audio-
 Language Models for multi-modal ALM models
--We propose a general purpose scheme ZSTE: Zero Shot Temporal Evaluation of Zero-Shot evaluation
+- We propose a general purpose scheme ZSTE: Zero Shot Temporal Evaluation of Zero-Shot evaluation
 for contrastive models
-
-## Prerequisites
-
-Before you begin, ensure you have met the following requirements:
-
-- Requirement 1
-- Requirement 2
-- Requirement 3
 
 ## Contributors
 
